@@ -10,6 +10,10 @@ tho always check what u are running to be sure ;)
 
 wpydynamic will be placed on a default onpath folder, this case /usr/local/bin so just keep it that way OR move it from there to a diff onpath folder, without it, the program cant run
 
+the installer is updated with every release so if u want to update waypaper-y, just run the installer again and enter "y" to ovveride older builds
+
+the waypaper-y version grabbed by the installer is a compiled version of the python script, compiled via nuitka, if u dont trust it, find ur own way of using this
+
 ## easy installation
 ### Fish:
 ```
