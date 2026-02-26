@@ -10,6 +10,7 @@ import subprocess
 import time
 import json
 import shutil
+import hashlib
 import configparser
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,7 @@ import io
 CONFIG_DIR     = Path.home() / ".config" / "waypapery"
 CONFIG_FILE    = CONFIG_DIR / "config.ini"
 AUTOSTART_CONF = CONFIG_DIR / "autostart.conf"
+CACHE_DIR      = CONFIG_DIR / "cache"
 DYNAMIC_DAEMON = "wpydynamic"
 
 THUMB_SIZE       = 148
@@ -191,6 +193,7 @@ DEFAULT_CONFIG = {
         "max_interval":   "600",
         "last_wallpaper": "",
         "mode":           "static",
+        "cache_enabled":  "true",
     }
 }
 
@@ -268,6 +271,73 @@ class Config:
     @mode.setter
     def mode(self, v: str):
         self.set("mode", v)
+
+    @property
+    def cache_enabled(self) -> bool:
+        return self.get("cache_enabled", "true").lower() in ("true", "1", "yes")
+
+    @cache_enabled.setter
+    def cache_enabled(self, v: bool):
+        self.set("cache_enabled", "true" if v else "false")
+
+
+# ──────────────────────────────────────────── Thumbnail Cache ───
+
+def _thumb_cache_path(image_path: Path) -> Path:
+    """Return the cache file path for a given wallpaper image."""
+    stat = image_path.stat()
+    key = f"{image_path}:{stat.st_size}:{stat.st_mtime}"
+    digest = hashlib.md5(key.encode()).hexdigest()
+    return CACHE_DIR / f"{digest}.png"
+
+
+def load_thumbnail_cached(image_path: Path) -> bytes:
+    """
+    Return PNG bytes for a thumbnail.
+    Reads from cache if available and fresh; otherwise generates and caches.
+    """
+    cache_file = _thumb_cache_path(image_path)
+    if cache_file.is_file():
+        return cache_file.read_bytes()
+
+    # Generate thumbnail
+    img = Image.open(image_path).convert("RGB")
+    img.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    data = buf.getvalue()
+
+    # Write to cache
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_file.write_bytes(data)
+    except OSError:
+        pass
+
+    return data
+
+
+def load_thumbnail_uncached(image_path: Path) -> bytes:
+    """Generate thumbnail bytes without touching the cache."""
+    img = Image.open(image_path).convert("RGB")
+    img.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def clear_thumbnail_cache() -> int:
+    """Delete all cached thumbnails. Returns number of files removed."""
+    if not CACHE_DIR.is_dir():
+        return 0
+    count = 0
+    for f in CACHE_DIR.glob("*.png"):
+        try:
+            f.unlink()
+            count += 1
+        except OSError:
+            pass
+    return count
 
 
 # ──────────────────────────────────────────── Backends ──────────
@@ -803,6 +873,21 @@ class WallpaperApp(Gtk.Application):
         comp_val.add_css_class("dim-label")
         field("Compositor (detected)", comp_val)
 
+        # ── Thumbnail Cache ──────────────────────────
+        section("Thumbnail Cache")
+
+        self._cache_switch = Gtk.Switch()
+        self._cache_switch.set_active(self.cfg.cache_enabled)
+        self._cache_switch.set_halign(Gtk.Align.START)
+        self._cache_switch.connect("notify::active", self._on_cache_toggled)
+        field("Enable thumbnail cache", self._cache_switch)
+
+        clear_cache_btn = Gtk.Button(label="Clear cache")
+        clear_cache_btn.add_css_class("destructive-action")
+        clear_cache_btn.set_halign(Gtk.Align.START)
+        clear_cache_btn.connect("clicked", self._on_clear_cache)
+        field("Cached thumbnails", clear_cache_btn)
+
         # ── Dynamic mode ─────────────────────────────
         section("Dynamic Mode")
 
@@ -837,6 +922,57 @@ class WallpaperApp(Gtk.Application):
         outer.append(form)
         scroll.set_child(outer)
         return scroll
+
+    def _on_cache_toggled(self, switch: Gtk.Switch, _):
+        enabled = switch.get_active()
+        self.cfg.cache_enabled = enabled
+        if not enabled:
+            # Ask whether to clear existing cache
+            dialog = Gtk.MessageDialog(
+                transient_for=self.win,
+                modal=True,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="Clear existing cache?",
+            )
+            lbl = Gtk.Label(label="Thumbnail caching has been disabled.\nWould you like to delete the existing cached thumbnails?")
+            lbl.set_wrap(True)
+            lbl.set_margin_start(16)
+            lbl.set_margin_end(16)
+            lbl.set_margin_bottom(12)
+            dialog.get_message_area().append(lbl)
+            dialog.connect("response", self._on_clear_cache_response)
+            dialog.present()
+
+    def _on_clear_cache_response(self, dialog: Gtk.MessageDialog, response_id: int):
+        dialog.destroy()
+        if response_id == Gtk.ResponseType.YES:
+            self._do_clear_cache()
+
+    def _on_clear_cache(self, _):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.win,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="Clear thumbnail cache?",
+        )
+        lbl = Gtk.Label(label="This will delete all cached thumbnails.\nThey will be regenerated next time you open the app.")
+        lbl.set_wrap(True)
+        lbl.set_margin_start(16)
+        lbl.set_margin_end(16)
+        lbl.set_margin_bottom(12)
+        dialog.get_message_area().append(lbl)
+        dialog.connect("response", self._on_clear_cache_response)
+        dialog.present()
+
+    def _do_clear_cache(self):
+        count = clear_thumbnail_cache()
+        if self._settings_status:
+            self._settings_status.set_markup(
+                f"<span foreground='#33d17a'>Cleared {count} cached thumbnail(s)</span>"
+            )
+            GLib.timeout_add_seconds(3, lambda: self._settings_status.set_markup("") or False)
 
     def _on_browse_wallpaper_dir(self, _):
         dialog = Gtk.FileDialog()
@@ -981,12 +1117,12 @@ class WallpaperApp(Gtk.Application):
 
         for path in files:
             try:
-                img = Image.open(path).convert("RGB")
-                img.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.Resampling.LANCZOS)
+                if self.cfg.cache_enabled:
+                    png_bytes = load_thumbnail_cached(path)
+                else:
+                    png_bytes = load_thumbnail_uncached(path)
 
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                texture = Gdk.Texture.new_from_bytes(GLib.Bytes(buf.getvalue()))
+                texture = Gdk.Texture.new_from_bytes(GLib.Bytes(png_bytes))
 
                 pic = Gtk.Picture.new_for_paintable(texture)
                 pic.set_content_fit(Gtk.ContentFit.CONTAIN)
