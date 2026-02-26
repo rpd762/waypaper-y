@@ -29,7 +29,6 @@ CACHE_DIR      = CONFIG_DIR / "cache"
 DYNAMIC_DAEMON = "wpydynamic"
 
 THUMB_SIZE       = 148
-COLS_PER_ROW     = 6
 COOLDOWN_SECONDS = 2.3
 
 # ──────────────────────────────────────────── Compositor ────────
@@ -194,6 +193,7 @@ DEFAULT_CONFIG = {
         "last_wallpaper": "",
         "mode":           "static",
         "cache_enabled":  "true",
+        "cols_per_row":   "5",
     }
 }
 
@@ -279,6 +279,14 @@ class Config:
     @cache_enabled.setter
     def cache_enabled(self, v: bool):
         self.set("cache_enabled", "true" if v else "false")
+
+    @property
+    def cols_per_row(self) -> int:
+        return max(1, int(self.get("cols_per_row", "5")))
+
+    @cols_per_row.setter
+    def cols_per_row(self, v: int):
+        self.set("cols_per_row", str(v))
 
 
 # ──────────────────────────────────────────── Thumbnail Cache ───
@@ -662,12 +670,13 @@ class WallpaperApp(Gtk.Application):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         page.append(scrolled)
 
         self.grid = Gtk.Grid()
         self.grid.set_row_spacing(20)
         self.grid.set_column_spacing(20)
-        self.grid.set_column_homogeneous(True)
+        self.grid.set_halign(Gtk.Align.CENTER)
         scrolled.set_child(self.grid)
 
         self.cooldown_label = Gtk.Label()
@@ -827,6 +836,13 @@ class WallpaperApp(Gtk.Application):
         browse_btn.connect("clicked", self._on_browse_wallpaper_dir)
         wp_box.append(browse_btn)
         field("Wallpaper directory", wp_box)
+
+        self._cols_spin = Gtk.SpinButton()
+        self._cols_spin.set_range(1, 20)
+        self._cols_spin.set_increments(1, 5)
+        self._cols_spin.set_value(self.cfg.cols_per_row)
+        self._cols_spin.set_width_chars(4)
+        field("Wallpapers per row", self._cols_spin)
 
         # ── Display ──────────────────────────────────
         section("Display")
@@ -1007,6 +1023,9 @@ class WallpaperApp(Gtk.Application):
         if wp_dir:
             self.cfg.set("wallpaper_dir", wp_dir)
 
+        # cols per row
+        self.cfg.cols_per_row = int(self._cols_spin.get_value())
+
         # intervals
         min_val = int(self._min_spin.get_value())
         max_val = int(self._max_spin.get_value())
@@ -1042,7 +1061,7 @@ class WallpaperApp(Gtk.Application):
         title.add_css_class("about-title")
         page.append(title)
 
-        by = Gtk.Label(label="by Yurz • v1.2")
+        by = Gtk.Label(label="by Yurz • v1.4")
         by.add_css_class("about-subtitle")
         page.append(by)
 
@@ -1126,6 +1145,7 @@ class WallpaperApp(Gtk.Application):
 
                 pic = Gtk.Picture.new_for_paintable(texture)
                 pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+                pic.set_size_request(THUMB_SIZE, int(THUMB_SIZE * 0.65))
                 pic.add_css_class("thumbnail-pic")
 
                 btn = Gtk.Button()
@@ -1134,8 +1154,8 @@ class WallpaperApp(Gtk.Application):
                 btn.add_css_class("thumbnail-btn")
                 btn.connect("clicked", lambda _, p=str(path): set_wallpaper(p, self.cfg, self))
 
-                col = self.thumb_count % COLS_PER_ROW
-                row_idx = self.thumb_count // COLS_PER_ROW
+                col = self.thumb_count % self.cfg.cols_per_row
+                row_idx = self.thumb_count // self.cfg.cols_per_row
                 self.grid.attach(btn, col, row_idx, 1, 1)
                 self.thumb_count += 1
 
