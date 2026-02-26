@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 
-# Configuration
-VERSION="1.2"  # ← update this if a newer release appears
+VERSION="1.2"
 DOWNLOAD_DIR="$HOME/Downloads"
 APPDIR="$HOME/.local/share/applications"
 APP_BIN="$APPDIR/waypaper-y"
 DESKTOP_FILE="$APPDIR/wpy.desktop"
-CONFIG_FILE="$HOME/.config/hypr/hyprland.conf"  # mentioned but never used — kept for your original intent
+CONFIG_FILE="$HOME/.config/hypr/hyprland.conf"
 
 echo ""
 echo "Warning:"
@@ -28,13 +27,12 @@ case "$answer" in
     ;;
 esac
 
-# Check for wget
+
 if ! command -v wget >/dev/null 2>&1; then
   echo "Error: wget not found. Please install it (e.g. sudo apt install wget / sudo pacman -S wget)."
   exit 1
 fi
 
-# Ensure download directory exists
 mkdir -p "$DOWNLOAD_DIR" || { echo "Failed to create $DOWNLOAD_DIR"; exit 1; }
 
 echo -e "\nDownloading waypaper-y v${VERSION}..."
@@ -47,14 +45,11 @@ wget -O "$DOWNLOAD_DIR/wpydynamic" \
   "https://github.com/rpd762/waypaper-y/releases/download/${VERSION}/wpydynamic" \
   || { echo "Download failed."; exit 1; }
 
-# Make executables
 chmod +x "$DOWNLOAD_DIR/waypaper-y" "$DOWNLOAD_DIR/wpydynamic" \
   || { echo "chmod failed."; exit 1; }
 
-# Prepare app directory
 mkdir -p "$APPDIR" || { echo "Failed to create $APPDIR"; exit 1; }
 
-# Handle existing waypaper-y binary
 if [ -e "$APP_BIN" ]; then
   echo "Warning: $APP_BIN already exists."
   read -rp "Overwrite it? (y/N): " ovr
@@ -79,7 +74,6 @@ Terminal=false
 Categories=Utility;Settings;GTK;
 EOF
 
-# wpydynamic — system-wide install
 echo -e "\nMoving wpydynamic to /usr/local/bin/ (sudo required)..."
 
 if [ -e "/usr/local/bin/wpydynamic" ]; then
@@ -94,7 +88,6 @@ fi
 sudo mv "$DOWNLOAD_DIR/wpydynamic" /usr/local/bin/ \
   || { echo "sudo mv failed — check permissions or disk space."; sudo rm -f "$DOWNLOAD_DIR/wpydynamic"; exit 1; }
 
-# Cleanup leftover file if any
 rm -f "$DOWNLOAD_DIR/wpydynamic" 2>/dev/null
 
 echo -e "\nDone!"
