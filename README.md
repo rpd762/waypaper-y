@@ -11,3 +11,5 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rpd762/waypaper-y/refs/heads
 ```
 
 from src: uhh idk, clone repo, compile if u wanna, make desktop entry, the install script does that automatically tho
+
+# THIS WAS NOT TESTED MUCH WITH SWWW, OR OTHER WC's/DE's
