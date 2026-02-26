@@ -24,6 +24,10 @@ curl -fsSL https://raw.githubusercontent.com/rpd762/waypaper-y/refs/heads/main/i
 bash <(curl -fsSL https://raw.githubusercontent.com/rpd762/waypaper-y/refs/heads/main/install.sh)
 ```
 
-from src: uhh idk, clone repo, compile if u wanna, make desktop entry, the install script does that automatically tho
+or just download install.sh, make executeable and run
+
+## from source (compiling)
+```
+
 
 # THIS WAS NOT TESTED MUCH WITH SWWW, OR OTHER WC's/DE's
