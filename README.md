@@ -1,5 +1,15 @@
 ts is written in python w gtk4 (wpydynamic is written in bash)
 
+# important or sum
+wpydynamic is not a standalone, its a bash script managing dynamic mode
+
+dynamic basically makes the wallpaper change randomly in set intervals
+
+its mandatory on path, the installer script does that automatically, thats why it asks for ur sudo password
+tho always check what u are running to be sure ;)
+
+wpydynamic will be placed on a default onpath folder, this case /usr/local/bin so just keep it that way OR move it from there to a diff onpath folder, without it, the program cant run
+
 ## easy installation
 ### Fish:
 ```
