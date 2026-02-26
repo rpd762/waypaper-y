@@ -28,6 +28,17 @@ or just download install.sh, make executeable and run
 
 ## from source (compiling)
 ```
+git clone https://github.com/rpd762/waypaper-y
+cd waypaper-y
+python3 -m venv venv/
+- activate venv - (bash: source venv/bin/activate)
+pip install -r requirements.txt
+nuitka --onefile --output-dir=dist --output-filename=waypaper-y main.py
+```
+
+this will get u a executeable in dist/
+
+or just run ```python3 main.py``` idk
 
 
 # THIS WAS NOT TESTED MUCH WITH SWWW, OR OTHER WC's/DE's
