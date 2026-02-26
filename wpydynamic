@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# wpydynamic – dynamic wallpaper daemon for Waypaper-Y v1.2
+# Reads config from ~/.config/waypapery/config.ini
+# Supports: hyprpaper, swww, swaybg, wbg
+
+CONFIG_FILE="$HOME/.config/waypapery/config.ini"
+
+# ── ini parser ────────────────────────────────────────────────────
+ini_get() {
+    local file="$1" section="$2" key="$3" default="${4:-}"
+    local in_section=0
+
+    while IFS= read -r line; do
+        line="${line%%\;*}"
+        line="${line%%\#*}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z "$line" ]] && continue
+
+        if [[ "$line" == "[$section]" ]]; then
+            in_section=1; continue
+        fi
+        if [[ "$line" == \[* ]]; then
+            in_section=0; continue
+        fi
+        if (( in_section )) && [[ "$line" == "$key"* ]]; then
+            local value="${line#*=}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            echo "$value"
+            return 0
+        fi
+    done < "$file"
+
+    echo "$default"
+}
+
+# ── load config ───────────────────────────────────────────────────
+load_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        echo "[wpydynamic] ERROR: config not found at $CONFIG_FILE" >&2
+        exit 1
+    fi
+
+    WALLPAPER_DIR="$(ini_get "$CONFIG_FILE" waypapery wallpaper_dir "$HOME/Pictures/Wallpapers")"
+    MONITOR="$(ini_get "$CONFIG_FILE" waypapery monitor "")"
+    BACKEND="$(ini_get "$CONFIG_FILE" waypapery backend "swww")"
+    MIN_INTERVAL="$(ini_get "$CONFIG_FILE" waypapery min_interval "300")"
+    MAX_INTERVAL="$(ini_get "$CONFIG_FILE" waypapery max_interval "600")"
+
+    # hyprpaper must have a real monitor name, not * or empty
+    if [[ "$BACKEND" == "hyprpaper" ]] && [[ -z "$MONITOR" || "$MONITOR" == "*" ]]; then
+        MONITOR="$(hyprctl monitors -j 2>/dev/null | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(d[0]['name'] if d else '')" 2>/dev/null)"
+        if [[ -z "$MONITOR" ]]; then
+            echo "[wpydynamic] ERROR: hyprpaper needs a monitor name, could not auto-detect" >&2
+            exit 1
+        fi
+        echo "[wpydynamic] Auto-detected monitor: $MONITOR" >&2
+    fi
+
+    echo "[wpydynamic] Config loaded:" >&2
+    echo "  wallpaper_dir = $WALLPAPER_DIR" >&2
+    echo "  monitor       = ${MONITOR:-*}" >&2
+    echo "  backend       = $BACKEND" >&2
+    echo "  interval      = ${MIN_INTERVAL}–${MAX_INTERVAL}s" >&2
+}
+
+# ── apply wallpaper ───────────────────────────────────────────────
+apply_wallpaper() {
+    local wp="$1"
+
+    case "$BACKEND" in
+        hyprpaper)
+            hyprctl hyprpaper wallpaper "$MONITOR,$wp"
+            return $?
+            ;;
+        swww)
+            swww img "$wp" \
+                --transition-type grow \
+                --transition-fps 60 \
+                --transition-step 40
+            ;;
+        swaybg)
+            pkill -x swaybg 2>/dev/null
+            if [[ -n "$MONITOR" && "$MONITOR" != "*" ]]; then
+                swaybg -o "$MONITOR" -i "$wp" -m fill &
+            else
+                swaybg -i "$wp" -m fill &
+            fi
+            disown
+            ;;
+        wbg)
+            pkill -x wbg 2>/dev/null
+            wbg "$wp" &
+            disown
+            ;;
+        *)
+            echo "[wpydynamic] ERROR: unknown backend '$BACKEND'" >&2
+            return 1
+            ;;
+    esac
+}
+
+# ── restore mode ──────────────────────────────────────────────────
+restore_wallpaper() {
+    local last
+    last="$(ini_get "$CONFIG_FILE" waypapery last_wallpaper "")"
+
+    if [[ -z "$last" || ! -f "$last" ]]; then
+        echo "[wpydynamic] No valid last_wallpaper, picking random" >&2
+        return 1
+    fi
+
+    echo "[wpydynamic] Restoring: $last" >&2
+    apply_wallpaper "$last"
+    exit 0
+}
+
+# ── wallpaper history ─────────────────────────────────────────────
+PREV1=""
+PREV2=""
+
+get_random_wallpaper() {
+    local wallpapers
+    mapfile -t wallpapers < <(find "$WALLPAPER_DIR" -type f \
+        \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) \
+        2>/dev/null | sort)
+
+    local count=${#wallpapers[@]}
+    if (( count == 0 )); then
+        echo "[wpydynamic] ERROR: no wallpapers in $WALLPAPER_DIR" >&2
+        return 1
+    fi
+    if (( count <= 2 )); then
+        echo "${wallpapers[$((RANDOM % count))]}"; return 0
+    fi
+
+    local attempts=0 candidate
+    while (( attempts < 20 )); do
+        (( attempts++ ))
+        candidate="${wallpapers[$((RANDOM % count))]}"
+        [[ "$candidate" != "$PREV1" && "$candidate" != "$PREV2" ]] && { echo "$candidate"; return 0; }
+    done
+    echo "$candidate"
+}
+
+get_random_interval() {
+    local range=$(( MAX_INTERVAL - MIN_INTERVAL ))
+    echo $(( RANDOM % (range + 1) + MIN_INTERVAL ))
+}
+
+save_last_wallpaper() {
+    python3 - "$CONFIG_FILE" "$1" <<'PYEOF'
+import sys, configparser
+cfg = configparser.ConfigParser()
+cfg.read(sys.argv[1])
+if 'waypapery' not in cfg:
+    cfg['waypapery'] = {}
+cfg['waypapery']['last_wallpaper'] = sys.argv[2]
+with open(sys.argv[1], 'w') as f:
+    cfg.write(f)
+PYEOF
+}
+
+change_wallpaper() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ── changing wallpaper ──" >&2
+    local wp
+    wp=$(get_random_wallpaper) || return 1
+    [[ -z "$wp" ]] && return 1
+
+    PREV2="$PREV1"
+    PREV1="$wp"
+
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Setting: $wp" >&2
+    apply_wallpaper "$wp"
+    local rc=$?
+
+    if (( rc == 0 )); then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] OK" >&2
+        save_last_wallpaper "$wp"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] FAILED (backend returned $rc)" >&2
+    fi
+}
+
+# ── main ──────────────────────────────────────────────────────────
+main() {
+    local mode="${1:-}"
+    load_config
+    sleep 2
+
+    if [[ "$mode" == "--restore" ]]; then
+        restore_wallpaper || change_wallpaper
+        exit 0
+    fi
+
+    echo "[wpydynamic] Starting daemon (backend: $BACKEND)" >&2
+    change_wallpaper
+
+    while true; do
+        local interval
+        interval=$(get_random_interval)
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Next change in ${interval}s" >&2
+        sleep "$interval"
+        change_wallpaper
+    done
+}
+
+main "$@"
