@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION="1.2"
+VERSION="1.3"
 DOWNLOAD_DIR="$HOME/Downloads"
 APPDIR="$HOME/.local/share/applications"
 APP_BIN="$APPDIR/waypaper-y"
