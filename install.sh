@@ -27,6 +27,8 @@ case "$answer" in
     ;;
 esac
 
+echo -e "\n Backing up hyprland conf..."
+cp $HOME/.config/hypr/hyprland.conf $HOME/.config/hypr/hyprland.conf.bak
 
 if ! command -v wget >/dev/null 2>&1; then
   echo "Error: wget not found. Please install it (e.g. sudo apt install wget / sudo pacman -S wget)."
